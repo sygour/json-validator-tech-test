@@ -1,7 +1,7 @@
 package controllers
 
 import com.eclipsesource.schema.SchemaValidator
-import factories.ValidatorFactory
+import factories.ValidatorService
 import javax.inject._
 import model.{Error, Success}
 import play.api.Logging
@@ -17,26 +17,31 @@ import scala.io.Source
 @Singleton
 class JsonValidationController @Inject()(val controllerComponents: ControllerComponents,
                                          val jsonSchemaRepository: JsonSchemaRepository,
-                                         val validatorFactory: ValidatorFactory)
+                                         val validator: ValidatorService)
   extends BaseController with Logging {
+
+  val ACTION_VALIDATE = "validateDocument"
+  val ERROR_SCHEMA_NOT_FOUND = "Schema not found"
+  val ERROR_CONTENT_NOT_JSON = "Content is not valid Json"
 
   /**
    * Validate a JSON document against a schema
    */
-  def validateJson(schemaId: String) = Action(parse.tolerantJson) { implicit request: Request[JsValue] =>
-    val validator: SchemaValidator = validatorFactory.validator
-    val body = request.body
+  def validateJson(schemaId: String) = Action { implicit request: Request[AnyContent] =>
+    val body = request.body.asJson
 
     // body is JSON + clean JSON
-    val jsonBody = removeNull(body)
-
-    // validate json against schema
-    jsonSchemaRepository.read(schemaId) match {
-      case None => Ok(Error("validateDocument", schemaId, "Schema not found").toString)
-      case Some(schema) =>
-        validator.validate(Source.fromString(schema), jsonBody) match {
-          case JsSuccess(_, _) => Ok(Success("validateDocument", schemaId).toString)
-          case JsError(errors) => Ok(Error("validateDocument", schemaId, formatErrorMessages(errors)).toString)
+    body.map(removeNull) match {
+      case None => BadRequest(Error(ACTION_VALIDATE, schemaId, ERROR_CONTENT_NOT_JSON).toJson)
+      case Some(jsonBody) =>
+        // validate json against schema
+        jsonSchemaRepository.read(schemaId) match {
+          case None => Ok(Error(ACTION_VALIDATE, schemaId, ERROR_SCHEMA_NOT_FOUND).toJson)
+          case Some(schema) =>
+            validator.validate(Source.fromString(schema), jsonBody) match {
+              case JsSuccess(_, _) => Ok(Success(ACTION_VALIDATE, schemaId).toJson)
+              case JsError(errors) => Ok(Error(ACTION_VALIDATE, schemaId, formatErrorMessages(errors)).toJson)
+            }
         }
     }
   }
@@ -62,7 +67,6 @@ class JsonValidationController @Inject()(val controllerComponents: ControllerCom
         case (node, messages) => s"${node.toJsonString}: ${messages.map(_.message).reduce(_ + ", " + _)}"
       }
     }
-    val formattedErrorMessage = errorMessages.map("[" + _ + "]").reduce(_ + ", " + _)
-    formattedErrorMessage
+    errorMessages.reduce(_ + ", " + _)
   }
 }

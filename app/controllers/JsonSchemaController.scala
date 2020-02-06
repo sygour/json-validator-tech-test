@@ -15,14 +15,24 @@ class JsonSchemaController @Inject()(val controllerComponents: ControllerCompone
                                      val jsonSchemaRepository: JsonSchemaRepository)
   extends BaseController with Logging {
 
+  val UPLOAD_ACTION = "uploadSchema"
+  val DOWNLOAD_ACTION = "downloadSchema"
+
   /**
    * Store a new Json Schema
    */
-  def uploadSchema(schemaId: String) = Action(parse.json) { implicit request: Request[JsValue] =>
-    jsonSchemaRepository.save(schemaId, request.body.toString)
-    Created(
-      Success("uploadSchema", schemaId).toString
-    )
+  def uploadSchema(schemaId: String) = Action { implicit request: Request[AnyContent] =>
+    request.body.asJson
+      .map(_.toString)
+      .orElse(request.body.asText) match {
+      case None =>
+        BadRequest(Error(UPLOAD_ACTION, schemaId, "Invalid content").toJson)
+          .as(JSON)
+      case Some(jsonString) =>
+        jsonSchemaRepository.save(schemaId, jsonString)
+        Created(Success(UPLOAD_ACTION, schemaId).toJson)
+          .as(JSON)
+    }
   }
 
   /**
@@ -31,7 +41,8 @@ class JsonSchemaController @Inject()(val controllerComponents: ControllerCompone
   def downloadSchema(schemaId: String) = Action { implicit request: Request[AnyContent] =>
     jsonSchemaRepository.read(schemaId) match {
       case Some(schema) => Ok(schema)
-      case None => BadRequest(Error("downloadSchema", schemaId, "Schema not found").toString)
+      case None =>
+        BadRequest(Error(DOWNLOAD_ACTION, schemaId, "Schema not found").toString)
     }
   }
 

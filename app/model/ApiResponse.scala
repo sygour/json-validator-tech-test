@@ -15,6 +15,10 @@ class ApiResponse(action: String, id: String, status: String, message: Option[St
       .getOrElse(json)
       .toString
   }
+
+  def toJson: JsValue = {
+    Json.parse(toString)
+  }
 }
 
 case class Success(action: String, id: String) extends ApiResponse(action, id, "success", None)
